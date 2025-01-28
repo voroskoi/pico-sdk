@@ -8,6 +8,10 @@ In `build.zig` add
 ```zig
 const pico_sdk = b.dependency("pico-sdk", .{});
 firmware.root_module.linkLibrary(pico_sdk.artifact("pico-sdk"))
+
+// newlib package
+const newlib = pico_sdk.module("newlib").root_source_file.?.dependency.dependency;
+firmware.addIncludePath(newlib.path("newlib/libc/include"));
 ```
 
 # Raspberry Pi Pico SDK

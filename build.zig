@@ -1,13 +1,20 @@
 const std = @import("std");
 
-pub fn build(b: *std.Build) !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer arena.deinit();
+const Platform = enum {
+    rp2040,
+    rp2350,
+};
 
-    const Platform = enum {
-        rp2040,
-        rp2350,
-    };
+const PicoSdkOptions = struct {
+    platform: Platform,
+    bare_metal: bool = false,
+};
+
+pub fn includeDirs(b: *std.Build, options: PicoSdkOptions) ![][]const u8 {
+    return subdirs(b, options)[0];
+}
+
+pub fn build(b: *std.Build) !void {
     const platform = b.option(Platform, "platform", "PICO Platform") orelse .rp2040;
     const bare_metal = b.option(bool, "bm", "Flag to exclude anything except base headers from the build") orelse false;
 
@@ -22,26 +29,8 @@ pub fn build(b: *std.Build) !void {
     };
     const optimize = b.standardOptimizeOption(.{});
 
-    var compile_dirs = std.ArrayList([]const u8).init(arena.allocator());
-    defer compile_dirs.deinit();
-
-    switch (platform) {
-        .rp2040 => {
-            try compile_dirs.appendSlice(&BD.bare_metal);
-            if (!bare_metal) try compile_dirs.appendSlice(&BD.common);
-            try compile_dirs.appendSlice(&BD.rp2040);
-        },
-        .rp2350 => unreachable,
-    }
-
-    const lib = b.addStaticLibrary(std.Build.StaticLibraryOptions{
-        .name = "pico-sdk",
-        .target = b.resolveTargetQuery(target),
-        .optimize = optimize,
-    });
-
+    // newlib module
     const newlib = b.dependency("newlib", .{});
-    lib.addIncludePath(newlib.path("newlib/libc/include"));
     _ = b.addModule("newlib", std.Build.Module.CreateOptions{
         .root_source_file = std.Build.LazyPath{
             .dependency = .{
@@ -51,40 +40,26 @@ pub fn build(b: *std.Build) !void {
         },
     });
 
+    // pico-sdk module
     const pico_module = b.addModule("pico-sdk", .{});
+
+    const lib = b.addStaticLibrary(std.Build.StaticLibraryOptions{
+        .name = "pico-sdk",
+        .target = b.resolveTargetQuery(target),
+        .optimize = optimize,
+    });
+    lib.addIncludePath(newlib.path("newlib/libc/include"));
+
+    // TODO: is this necessary?
     pico_module.linkLibrary(lib);
 
-    var include_dirs = std.ArrayList([]const u8).init(arena.allocator());
-    defer include_dirs.deinit();
-    var src_files = std.ArrayList([]const u8).init(arena.allocator());
-    defer src_files.deinit();
+    const sd = try subdirs(b, .{ .platform = platform, .bare_metal = bare_metal });
 
-    for (compile_dirs.items) |comp_dir| {
-        var source_dir: std.fs.Dir = blk: {
-            const source_dir = try std.fs.openDirAbsolute(
-                b.path(try std.fmt.allocPrint(arena.allocator(), "{s}/{s}", .{ "src", comp_dir })).getPath(b),
-                .{ .iterate = true },
-            );
-            break :blk source_dir;
-        };
-        var walker = try source_dir.walk(arena.allocator());
-        while (try walker.next()) |we| {
-            if (we.kind == .directory and std.mem.eql(u8, we.basename, "include")) {
-                const inc_dir = try std.fmt.allocPrint(arena.allocator(), "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
-                try include_dirs.append(inc_dir);
-            }
-            if (we.kind == .file and std.mem.endsWith(u8, we.basename, ".c")) {
-                const src_file = try std.fmt.allocPrint(arena.allocator(), "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
-                try src_files.append(src_file);
-            }
-        }
-    }
-
-    for (include_dirs.items) |d| {
+    for (sd.includes) |d| {
         lib.addIncludePath(b.path(d));
     }
 
-    for (src_files.items) |sf| {
+    for (sd.src_files) |sf| {
         lib.addCSourceFile(.{
             .file = b.path(sf),
             .flags = &.{},
@@ -123,6 +98,51 @@ pub fn build(b: *std.Build) !void {
     }
 
     b.installArtifact(lib);
+}
+
+fn subdirs(b: *std.Build, options: PicoSdkOptions) !struct {
+    includes: [][]const u8,
+    src_files: [][]const u8,
+} {
+    var compile_dirs = std.ArrayList([]const u8).init(b.allocator);
+    defer compile_dirs.deinit();
+
+    switch (options.platform) {
+        .rp2040 => {
+            try compile_dirs.appendSlice(&BD.bare_metal);
+            if (!options.bare_metal) try compile_dirs.appendSlice(&BD.common);
+            try compile_dirs.appendSlice(&BD.rp2040);
+        },
+        .rp2350 => unreachable,
+    }
+
+    var include_dirs = std.ArrayList([]const u8).init(b.allocator);
+    defer include_dirs.deinit();
+    var src_files = std.ArrayList([]const u8).init(b.allocator);
+    defer src_files.deinit();
+
+    for (compile_dirs.items) |comp_dir| {
+        var source_dir: std.fs.Dir = blk: {
+            const source_dir = try std.fs.openDirAbsolute(
+                b.path(try std.fmt.allocPrint(b.allocator, "{s}/{s}", .{ "src", comp_dir })).getPath(b),
+                .{ .iterate = true },
+            );
+            break :blk source_dir;
+        };
+        var walker = try source_dir.walk(b.allocator);
+        while (try walker.next()) |we| {
+            if (we.kind == .directory and std.mem.eql(u8, we.basename, "include")) {
+                const inc_dir = try std.fmt.allocPrint(b.allocator, "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
+                try include_dirs.append(inc_dir);
+            }
+            if (we.kind == .file and std.mem.endsWith(u8, we.basename, ".c")) {
+                const src_file = try std.fmt.allocPrint(b.allocator, "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
+                try src_files.append(src_file);
+            }
+        }
+    }
+
+    return .{ .includes = try include_dirs.toOwnedSlice(), .src_files = try src_files.toOwnedSlice() };
 }
 
 // Build Directories - https://github.com/raspberrypi/pico-sdk/blob/master/src/cmake/rp2_common.cmake
