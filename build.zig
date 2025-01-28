@@ -8,6 +8,7 @@ const Platform = enum {
 const PicoSdkOptions = struct {
     platform: Platform,
     bare_metal: bool = false,
+    riscv: bool = false,
 };
 
 pub fn includeDirs(b: *std.Build, options: PicoSdkOptions) ![][]const u8 {
@@ -17,6 +18,7 @@ pub fn includeDirs(b: *std.Build, options: PicoSdkOptions) ![][]const u8 {
 pub fn build(b: *std.Build) !void {
     const platform = b.option(Platform, "platform", "PICO Platform") orelse .rp2040;
     const bare_metal = b.option(bool, "bm", "Flag to exclude anything except base headers from the build") orelse false;
+    const riscv = b.option(bool, "riscv", "RISC-V support") orelse false;
 
     const target = switch (platform) {
         .rp2040 => std.Target.Query{
@@ -52,18 +54,21 @@ pub fn build(b: *std.Build) !void {
     // TODO: is this necessary?
     pico_module.linkLibrary(lib);
 
-    const sd = try subdirs(b, .{ .platform = platform, .bare_metal = bare_metal });
+    const sd = try subdirs(b, .{ .platform = platform, .bare_metal = bare_metal, .riscv = riscv });
 
     for (sd.includes) |d| {
         lib.addIncludePath(b.path(d));
     }
 
     for (sd.src_files) |sf| {
-        lib.addCSourceFile(.{
-            .file = b.path(sf),
-            .flags = &.{},
-        });
+        lib.addCSourceFile(.{ .file = b.path(sf), .flags = &.{} });
     }
+
+    for (sd.asm_files) |af| {
+        lib.addAssemblyFile(b.path(af));
+    }
+    // lib.addIncludePath(b.path("src/rp2040/boot_stage2/asminclude"));
+    lib.addAssemblyFile(b.path("src/rp2_common/pico_crt0/crt0.S"));
 
     lib.addIncludePath(newlib.path("newlib/libc/include"));
     lib.addCSourceFile(.{ .file = b.path("src/rp2_common/pico_clib_interface/newlib_interface.c") });
@@ -84,6 +89,14 @@ pub fn build(b: *std.Build) !void {
     });
     lib.addConfigHeader(version_h);
 
+    // const ssi_h = b.addConfigHeader(std.Build.Step.ConfigHeader.Options{
+    //     .style = .{ .autoconf = std.Build.LazyPath{
+    //         .src_path = .{ .owner = b, .sub_path = "src/rp2040/hardware_regs/include/hardware/regs/ssi.h" },
+    //     } },
+    //     .include_path = "hardware/regs/ssi.h",
+    // }, .{});
+    // lib.addConfigHeader(ssi_h);
+
     const config_autogen_h = b.addWriteFile("pico/config_autogen.h", "");
     lib.addIncludePath(config_autogen_h.getDirectory());
     lib.step.dependOn(&config_autogen_h.step);
@@ -91,6 +104,7 @@ pub fn build(b: *std.Build) !void {
     switch (platform) {
         .rp2040 => {
             lib.root_module.addCMacro("PICO_RP2040", "1");
+            lib.root_module.addCMacro("PICO_RUNTIME_NO_INIT_MUTEX", "0");
             // lib.root_module.addCMacro("LIB_TINYUSB_HOST", "1");
             // lib.root_module.addCMacro("LIB_PICO_STDIO_USB", "0");
         },
@@ -106,6 +120,7 @@ pub fn build(b: *std.Build) !void {
 fn subdirs(b: *std.Build, options: PicoSdkOptions) !struct {
     includes: [][]const u8,
     src_files: [][]const u8,
+    asm_files: [][]const u8,
 } {
     var compile_dirs = std.ArrayList([]const u8).init(b.allocator);
     defer compile_dirs.deinit();
@@ -123,6 +138,8 @@ fn subdirs(b: *std.Build, options: PicoSdkOptions) !struct {
     defer include_dirs.deinit();
     var src_files = std.ArrayList([]const u8).init(b.allocator);
     defer src_files.deinit();
+    var asm_files = std.ArrayList([]const u8).init(b.allocator);
+    defer asm_files.deinit();
 
     for (compile_dirs.items) |comp_dir| {
         var source_dir: std.fs.Dir = blk: {
@@ -142,10 +159,20 @@ fn subdirs(b: *std.Build, options: PicoSdkOptions) !struct {
                 const src_file = try std.fmt.allocPrint(b.allocator, "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
                 try src_files.append(src_file);
             }
+            if (we.kind == .file and std.mem.endsWith(u8, we.basename, ".S")) {
+                if (!options.riscv and std.mem.endsWith(u8, we.basename, "riscv.S")) continue;
+                if (!options.riscv and std.mem.endsWith(u8, we.basename, "hazard3.S")) continue;
+                const asm_file = try std.fmt.allocPrint(b.allocator, "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
+                try asm_files.append(asm_file);
+            }
         }
     }
 
-    return .{ .includes = try include_dirs.toOwnedSlice(), .src_files = try src_files.toOwnedSlice() };
+    return .{
+        .includes = try include_dirs.toOwnedSlice(),
+        .src_files = try src_files.toOwnedSlice(),
+        .asm_files = try asm_files.toOwnedSlice(),
+    };
 }
 
 // Build Directories - https://github.com/raspberrypi/pico-sdk/blob/master/src/cmake/rp2_common.cmake
@@ -214,7 +241,7 @@ const BD = struct {
         // "rp2_common/pico_atomic",
         "rp2_common/pico_bit_ops",
         "rp2_common/pico_divider",
-        "rp2_common/pico_double",
+        // "rp2_common/pico_double",
         "rp2_common/pico_int64_ops",
         "rp2_common/pico_flash",
         "rp2_common/pico_float",
@@ -254,7 +281,7 @@ const BD = struct {
 
         "rp2_common/pico_time_adapter",
 
-        "rp2_common/pico_crt0",
+        // "rp2_common/pico_crt0",
         // "rp2_common/pico_clib_interface", - only newlib
         "rp2_common/pico_cxx_options",
         "rp2_common/pico_standard_binary_info",
@@ -275,7 +302,7 @@ const BD = struct {
         "rp2040/pico_platform",
         "rp2040/hardware_regs",
         "rp2040/hardware_structs",
-        "rp2040/boot_stage2",
+        // "rp2040/boot_stage2",
 
         "rp2_common/hardware_rtc",
     };
@@ -283,7 +310,7 @@ const BD = struct {
         "rp2350/pico_platform",
         "rp2350/hardware_regs",
         "rp2350/hardware_structs",
-        "rp2350/boot_stage2",
+        // "rp2350/boot_stage2",
 
         "rp2_common/hardware_powman",
         // Note in spite of the name this is usable on Arm as well as RISC-V
