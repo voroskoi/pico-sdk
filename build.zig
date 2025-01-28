@@ -10,7 +10,6 @@ pub fn build(b: *std.Build) !void {
     };
     const platform = b.option(Platform, "platform", "PICO Platform") orelse .rp2040;
     const bare_metal = b.option(bool, "bm", "Flag to exclude anything except base headers from the build") orelse false;
-    // TODO: PICO_COMBINED_DOCS
 
     const target = switch (platform) {
         .rp2040 => std.Target.Query{
@@ -36,14 +35,14 @@ pub fn build(b: *std.Build) !void {
     }
 
     const lib = b.addStaticLibrary(std.Build.StaticLibraryOptions{
-        .name = "picosdk",
+        .name = "pico-sdk",
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
 
-    // TODO: add Boards and include the proper header files
+    const pico_module = b.addModule("pico-sdk", .{});
+    pico_module.linkLibrary(lib);
 
-    // TODO: bundle this lib, check if zig does it anyway
     lib.addIncludePath(std.Build.LazyPath{ .cwd_relative = "/usr/arm-none-eabi/include/" });
 
     var include_dirs = std.ArrayList([]const u8).init(arena.allocator());
@@ -61,34 +60,28 @@ pub fn build(b: *std.Build) !void {
         };
         var walker = try source_dir.walk(arena.allocator());
         while (try walker.next()) |we| {
-            // std.debug.print("{s}\n", .{we.basename});
             if (we.kind == .directory and std.mem.eql(u8, we.basename, "include")) {
                 const inc_dir = try std.fmt.allocPrint(arena.allocator(), "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
-                // std.debug.print("{s}\n", .{inc_dir});
                 try include_dirs.append(inc_dir);
             }
             if (we.kind == .file and std.mem.endsWith(u8, we.basename, ".c")) {
                 const src_file = try std.fmt.allocPrint(arena.allocator(), "{s}/{s}/{s}", .{ "src", comp_dir, we.path });
-                // std.debug.print("{s}\n", .{src_file});
                 try src_files.append(src_file);
             }
         }
     }
 
     for (include_dirs.items) |d| {
-        // std.debug.print("{s}\n", .{d});
         lib.addIncludePath(b.path(d));
     }
 
     for (src_files.items) |sf| {
-        // std.debug.print("{s}\n", .{sf});
         lib.addCSourceFile(.{
             .file = b.path(sf),
             .flags = &.{},
         });
     }
 
-    // XXX: hardcode newlib
     lib.addCSourceFile(.{ .file = b.path("src/rp2_common/pico_clib_interface/newlib_interface.c") });
     lib.addIncludePath(.{ .src_path = .{
         .owner = b,
@@ -113,12 +106,9 @@ pub fn build(b: *std.Build) !void {
     switch (platform) {
         .rp2040 => {
             lib.root_module.addCMacro("PICO_RP2040", "1");
-            // TODO
-            lib.root_module.addCMacro("LIB_TINYUSB_HOST", "1");
-            // TODO
-            lib.root_module.addCMacro("PICO_CLIB", "newlib");
-            // TODO
-            lib.root_module.addCMacro("LIB_PICO_STDIO_USB", "0");
+            // lib.root_module.addCMacro("LIB_TINYUSB_HOST", "1");
+            // lib.root_module.addCMacro("PICO_CLIB", "newlib");
+            // lib.root_module.addCMacro("LIB_PICO_STDIO_USB", "0");
         },
         .rp2350 => unreachable,
     }
@@ -272,6 +262,4 @@ const BD = struct {
         "rp2_common/hardware_dcp",
         "rp2_common/hardware_rcp",
     };
-    // TODO
-    const riscv = [_][]const u8{};
 };
