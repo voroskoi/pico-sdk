@@ -48,7 +48,6 @@ pub fn build(b: *std.Build) !void {
         .target = b.resolveTargetQuery(target),
         .optimize = optimize,
     });
-    lib.addIncludePath(newlib.path("newlib/libc/include"));
 
     // TODO: is this necessary?
     pico_module.linkLibrary(lib);
@@ -66,7 +65,9 @@ pub fn build(b: *std.Build) !void {
         });
     }
 
+    lib.addIncludePath(newlib.path("newlib/libc/include"));
     lib.addCSourceFile(.{ .file = b.path("src/rp2_common/pico_clib_interface/newlib_interface.c") });
+
     lib.addIncludePath(.{ .src_path = .{
         .owner = b,
         .sub_path = "src/rp2_common/pico_stdio_rtt/SEGGER/RTT",
@@ -91,11 +92,13 @@ pub fn build(b: *std.Build) !void {
         .rp2040 => {
             lib.root_module.addCMacro("PICO_RP2040", "1");
             // lib.root_module.addCMacro("LIB_TINYUSB_HOST", "1");
-            // lib.root_module.addCMacro("PICO_CLIB", "newlib");
             // lib.root_module.addCMacro("LIB_PICO_STDIO_USB", "0");
         },
         .rp2350 => unreachable,
     }
+
+    b.libc_file = "libc.config";
+    lib.linkLibC();
 
     b.installArtifact(lib);
 }
@@ -252,8 +255,7 @@ const BD = struct {
         "rp2_common/pico_time_adapter",
 
         "rp2_common/pico_crt0",
-        // TODO: disabled for now
-        // "rp2_common/pico_clib_interface",
+        // "rp2_common/pico_clib_interface", - only newlib
         "rp2_common/pico_cxx_options",
         "rp2_common/pico_standard_binary_info",
         "rp2_common/pico_standard_link",
