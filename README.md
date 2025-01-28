@@ -1,3 +1,16 @@
+# Zig
+
+This package is work in progress, see issues for missing parts!
+
+`zig fetch --save zig fetch --save git+https://github.com/voroskoi/pico-sdk#zig`
+
+In `build.zig` add
+```zig
+const pico_sdk = b.dependency("pico-sdk", .{});
+const pico_sdk_module = pico_sdk.module("pico-sdk");
+exe.root_module.addImport("pico-sdk", pico_sdk_module);
+```
+
 # Raspberry Pi Pico SDK
 
 The Raspberry Pi Pico SDK (henceforth the SDK) provides the headers, libraries and build system

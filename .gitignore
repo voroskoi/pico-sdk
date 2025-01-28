@@ -13,3 +13,4 @@ MODULE.bazel.lock
 __pycache__/
 
 .zig-cache
+zig-out
