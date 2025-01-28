@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) !void {
         .root_source_file = std.Build.LazyPath{
             .dependency = .{
                 .dependency = newlib,
-                .sub_path = "newlib/libc/include",
+                .sub_path = "",
             },
         },
     });
