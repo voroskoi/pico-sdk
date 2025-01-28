@@ -40,10 +40,13 @@ pub fn build(b: *std.Build) !void {
         .optimize = optimize,
     });
 
+    const newlib = b.dependency("newlib", .{});
+    lib.addIncludePath(newlib.path("newlib/libc/include"));
+    const newlib_module = b.addModule("newlib", .{});
+
     const pico_module = b.addModule("pico-sdk", .{});
     pico_module.linkLibrary(lib);
-
-    lib.addIncludePath(std.Build.LazyPath{ .cwd_relative = "/usr/arm-none-eabi/include/" });
+    pico_module.addImport("newlib", newlib_module);
 
     var include_dirs = std.ArrayList([]const u8).init(arena.allocator());
     defer include_dirs.deinit();
