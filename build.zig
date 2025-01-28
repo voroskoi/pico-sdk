@@ -11,7 +11,7 @@ const PicoSdkOptions = struct {
 };
 
 pub fn includeDirs(b: *std.Build, options: PicoSdkOptions) ![][]const u8 {
-    return subdirs(b, options).includes;
+    return (try subdirs(b, options)).includes;
 }
 
 pub fn build(b: *std.Build) !void {
