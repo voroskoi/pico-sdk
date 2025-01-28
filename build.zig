@@ -42,11 +42,17 @@ pub fn build(b: *std.Build) !void {
 
     const newlib = b.dependency("newlib", .{});
     lib.addIncludePath(newlib.path("newlib/libc/include"));
-    const newlib_module = b.addModule("newlib", .{});
+    _ = b.addModule("newlib", std.Build.Module.CreateOptions{
+        .root_source_file = std.Build.LazyPath{
+            .dependency = .{
+                .dependency = newlib,
+                .sub_path = "newlib/libc/include",
+            },
+        },
+    });
 
     const pico_module = b.addModule("pico-sdk", .{});
     pico_module.linkLibrary(lib);
-    pico_module.addImport("newlib", newlib_module);
 
     var include_dirs = std.ArrayList([]const u8).init(arena.allocator());
     defer include_dirs.deinit();

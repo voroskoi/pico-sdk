@@ -7,8 +7,7 @@ This package is work in progress, see issues for missing parts!
 In `build.zig` add
 ```zig
 const pico_sdk = b.dependency("pico-sdk", .{});
-const pico_sdk_module = pico_sdk.module("pico-sdk");
-exe.root_module.addImport("pico-sdk", pico_sdk_module);
+firmware.root_module.linkLibrary(pico_sdk.artifact("pico-sdk"))
 ```
 
 # Raspberry Pi Pico SDK
