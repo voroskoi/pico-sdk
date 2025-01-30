@@ -111,8 +111,7 @@ pub fn build(b: *std.Build) !void {
         .rp2350 => unreachable,
     }
 
-    b.libc_file = "libc.config";
-    lib.linkLibC();
+    lib.linkSystemLibrary("c");
 
     b.installArtifact(lib);
 }
